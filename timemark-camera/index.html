@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>타임마크 카메라</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000; --fg:#fff; --muted:#a1a1aa; --panel:#18181b; --panel2:#27272a;
+  --accent:#f5b301; --line:#3f3f46; --danger:#ef4444;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.app{position:fixed;inset:0;display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.top{height:56px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px}
+.top h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.2px}
+.icon-btn{width:44px;height:44px;border-radius:22px;display:grid;place-items:center}
+.icon-btn:active{background:var(--panel2)}
+.icon-btn svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stage-wrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.stage{position:relative;aspect-ratio:3/4;width:100%;max-height:100%;background:#111;overflow:hidden}
+@supports not (aspect-ratio:3/4){.stage{height:133.33vw}}
+.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.stage video.mirror{transform:scaleX(-1)}
+.stage canvas.overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.side{position:absolute;right:10px;bottom:14px;display:flex;flex-direction:column;gap:14px;z-index:2}
+.side .icon-btn{background:rgba(0,0,0,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.msg{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:24px;text-align:center;color:var(--muted);font-size:15px;line-height:1.5;z-index:1}
+.msg.show{display:flex}
+.pill{background:var(--fg);color:#000;border-radius:999px;padding:12px 20px;font-weight:600;font-size:15px}
+.pill.ghost{background:var(--panel2);color:var(--fg)}
+.flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:3;transition:opacity .25s}
+.flash.on{opacity:.85;transition:none}
+.bottom{flex:none;height:132px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 24px}
+.thumb{justify-self:start;width:56px;height:56px;border-radius:10px;overflow:hidden;background:var(--panel2);
+  border:2px solid var(--line);display:grid;place-items:center;color:var(--muted);font-size:11px}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.shutter{width:78px;height:78px;border-radius:50%;border:5px solid #fff;display:grid;place-items:center}
+.shutter::after{content:"";width:62px;height:62px;border-radius:50%;background:#fff;transition:transform .1s}
+.shutter:active::after{transform:scale(.88)}
+.shutter:disabled{opacity:.4}
+.native{justify-self:end;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.native .icon-btn{background:var(--panel2)}
+.hidden{display:none!important}
+
+/* sheets */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10;display:none}
+.sheet-bg.show{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:var(--panel);border-radius:18px 18px 0 0;
+  padding:18px 16px calc(18px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .22s ease;
+  max-height:88vh;overflow:auto;-webkit-user-select:text;user-select:text}
+.sheet.show{transform:none}
+.sheet h2{font-size:17px;margin:0 0 14px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:13px;color:var(--muted)}
+.field input,.field textarea{background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--fg);
+  font:inherit;font-size:16px;padding:11px 12px;width:100%;resize:none}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;font-size:15px}
+.switch{position:relative;width:48px;height:28px;flex:none}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch span{position:absolute;inset:0;background:var(--line);border-radius:14px;transition:.2s}
+.switch span::after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.2s}
+.switch input:checked+span{background:#22c55e}
+.switch input:checked+span::after{transform:translateX(20px)}
+.hint{font-size:12px;color:var(--muted);line-height:1.5;margin:-6px 0 14px}
+.btns{display:flex;gap:10px}
+.btns .pill{flex:1;text-align:center}
+
+/* viewer */
+.viewer{position:fixed;inset:0;z-index:20;background:#000;display:none;flex-direction:column;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+.viewer.show{display:flex}
+.viewer .imgbox{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px}
+.viewer img{max-width:100%;max-height:100%;object-fit:contain;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto}
+.viewer .bar{display:flex;gap:10px;padding:12px 16px 16px}
+.viewer .bar .pill{flex:1;text-align:center}
+.viewer .nav{display:flex;align-items:center;justify-content:space-between;padding:0 8px;height:52px}
+.viewer .count{font-size:14px;color:var(--muted)}
+.tip{font-size:12px;color:var(--muted);text-align:center;padding:0 16px}
+.toast{position:fixed;left:50%;bottom:170px;transform:translateX(-50%);background:rgba(39,39,42,.95);color:#fff;
+  padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <button class="icon-btn" id="btnSettings" aria-label="설정">
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+    </button>
+    <h1>타임마크 카메라</h1>
+    <button class="icon-btn" id="btnFlip" aria-label="카메라 전환">
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><path d="M9.5 12.5a3 3 0 0 1 5.2-1.6M14.5 14a3 3 0 0 1-5.2 1.6"/><path d="M14.7 9.2v1.7H13M9.3 17.3v-1.7H11"/></svg>
+    </button>
+  </div>
+
+  <div class="stage-wrap">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas class="overlay" id="overlay"></canvas>
+      <div class="msg" id="msg">
+        <div id="msgText">카메라를 시작하려면 아래 버튼을 눌러주세요.</div>
+        <button class="pill" id="btnStart">카메라 켜기</button>
+        <button class="pill ghost" id="btnNative2">기본 카메라로 찍기</button>
+      </div>
+      <div class="side">
+        <button class="icon-btn" id="btnEdit" aria-label="이름·주소 편집">
+          <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+        </button>
+        <button class="icon-btn" id="btnLoc" aria-label="위치 새로고침">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.6"/></svg>
+        </button>
+      </div>
+      <div class="flash" id="flash"></div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <button class="thumb" id="thumb" aria-label="찍은 사진 보기"><span>사진</span></button>
+    <button class="shutter" id="shutter" aria-label="촬영" disabled></button>
+    <div class="native">
+      <button class="icon-btn" id="btnNative" aria-label="기본 카메라(고화질)로 찍기">
+        <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><circle cx="12" cy="12.5" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>
+      </button>
+      <span>고화질</span>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden">
+
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet">
+  <h2>워터마크 설정</h2>
+  <div class="field">
+    <label for="inName">이름 태그</label>
+    <input id="inName" maxlength="30" placeholder="예: 산이">
+  </div>
+  <div class="row"><span>이름 태그 표시</span><label class="switch"><input type="checkbox" id="swName"><span></span></label></div>
+  <div class="row"><span>주소 표시</span><label class="switch"><input type="checkbox" id="swAddr"><span></span></label></div>
+  <div class="field">
+    <label for="inAddr">주소 직접 입력 (비워두면 현재 위치 자동)</label>
+    <textarea id="inAddr" rows="2" placeholder="자동: 위치 권한 허용 시 표시"></textarea>
+  </div>
+  <p class="hint" id="autoAddr"></p>
+  <div class="field">
+    <label for="inMemo">메모 (선택, 이름 아래 한 줄)</label>
+    <input id="inMemo" maxlength="60" placeholder="예: 현장 점검">
+  </div>
+  <div class="row"><span>초 단위 표시 (HH:MM:SS)</span><label class="switch"><input type="checkbox" id="swSec"><span></span></label></div>
+  <div class="btns"><button class="pill" id="btnSheetDone">완료</button></div>
+</div>
+
+<div class="viewer" id="viewer">
+  <div class="nav">
+    <button class="icon-btn" id="vClose" aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <span class="count" id="vCount"></span>
+    <button class="icon-btn" id="vDelete" aria-label="삭제"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg></button>
+  </div>
+  <div class="imgbox"><img id="vImg" alt="찍은 사진"></div>
+  <p class="tip" id="vTip">아이폰은 '저장/공유' → '이미지 저장'을 누르면 사진 앱에 저장돼요. 사진을 길게 눌러 저장할 수도 있어요.</p>
+  <div class="bar">
+    <button class="pill ghost" id="vPrev">이전</button>
+    <button class="pill" id="vSave">저장/공유</button>
+    <button class="pill ghost" id="vNext">다음</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('video'), overlay = $('overlay'), stage = $('stage');
+  const WEEK = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
+  const pad = n => String(n).padStart(2,'0');
+
+  // ---------- settings (per device) ----------
+  const DEFAULTS = {name:'', showName:true, showAddr:true, manualAddr:'', memo:'', showSec:false, facing:'environment'};
+  let S = {...DEFAULTS};
+  try { Object.assign(S, JSON.parse(localStorage.getItem('timemark.settings')||'{}')); } catch(e){}
+  const saveS = () => { try { localStorage.setItem('timemark.settings', JSON.stringify(S)); } catch(e){} };
+
+  // ---------- location ----------
+  let autoAddr = '', geoState = 'idle', lastGeo = 0;
+  function formatAddr(j){
+    const a = j.address || {};
+    // Korean order: large -> small. Nominatim display_name is small -> large.
+    if (j.display_name){
+      let parts = j.display_name.split(',').map(s=>s.trim()).filter(Boolean);
+      parts = parts.filter(p => p !== a.country && p !== a.postcode && p !== '대한민국');
+      parts.reverse();
+      // dedupe consecutive / repeated tokens
+      const seen = new Set(); const out = [];
+      for (const p of parts){ if(!seen.has(p)){ seen.add(p); out.push(p); } }
+      return out.join(' ');
+    }
+    return '';
+  }
+  function refreshLocation(manual){
+    if (!('geolocation' in navigator)) { geoState='unsupported'; return; }
+    if (geoState==='loading') return;
+    geoState='loading'; if (manual) toast('위치 확인 중…');
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const {latitude:lat, longitude:lon} = pos.coords;
+      lastGeo = Date.now();
+      const coordText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=ko`);
+        if (!r.ok) throw new Error(r.status);
+        const j = await r.json();
+        autoAddr = formatAddr(j) || coordText;
+      } catch(e){ autoAddr = coordText; }
+      geoState='ok'; renderAutoAddr(); if (manual) toast('위치를 업데이트했어요');
+    }, err => {
+      geoState = 'denied';
+      if (manual) toast(err.code===1 ? '위치 권한이 꺼져 있어요' : '위치를 가져오지 못했어요');
+      renderAutoAddr();
+    }, {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+  }
+  function renderAutoAddr(){
+    $('autoAddr').textContent = autoAddr ? `현재 위치: ${autoAddr}` :
+      geoState==='denied' ? '위치 권한이 없어 자동 주소를 쓸 수 없어요. 위에 직접 입력하세요.' : '';
+  }
+  const currentAddr = () => (S.manualAddr.trim() || autoAddr);
+
+  // ---------- stamp drawing (shared by preview + capture) ----------
+  function wrap(ctx, text, maxW){
+    const lines=[]; let line='';
+    for (const word of text.split(/(\s+)/)){
+      const test = line + word;
+      if (ctx.measureText(test).width > maxW && line.trim()){
+        lines.push(line.trim()); line = word.trimStart();
+        // hard-break very long tokens
+        while (ctx.measureText(line).width > maxW && line.length > 1){
+          let i=line.length; while(i>1 && ctx.measureText(line.slice(0,i)).width>maxW) i--;
+          lines.push(line.slice(0,i)); line=line.slice(i);
+        }
+      } else line = test;
+    }
+    if (line.trim()) lines.push(line.trim());
+    return lines;
+  }
+  const KFONT = '-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif';
+  function drawStamp(ctx, W, H, when){
+    const u = Math.min(W,H)/100;           // 1% of short side
+    const m = 4*u;                          // margin
+    const d = when || new Date();
+    const time = S.showSec ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const date = `${d.getFullYear()}년${pad(d.getMonth()+1)}월${pad(d.getDate())}일`;
+    const week = WEEK[d.getDay()];
+    const addr = S.showAddr ? currentAddr() : '';
+
+    ctx.save();
+    ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 1.2*u; ctx.shadowOffsetY = .25*u;
+    ctx.fillStyle = '#fff';
+
+    const fSmall = 4.4*u, lh = fSmall*1.32;
+    ctx.font = `400 ${fSmall}px ${KFONT}`;
+    const addrLines = addr ? wrap(ctx, addr, W*0.62).slice(0,3) : [];
+    const showName = S.showName && S.name.trim();
+    const memo = S.memo.trim();
+    const tagH = fSmall*1.9;
+
+    // measure from bottom up
+    let y = H - m;
+    const blocks = [];
+    if (memo){ blocks.push({t:'memo', y}); y -= lh; }
+    if (showName){ y -= tagH; blocks.push({t:'name', y}); y -= 1.4*u; }
+    if (addrLines.length){
+      for (let i=addrLines.length-1;i>=0;i--){ blocks.push({t:'addr', text:addrLines[i], y}); y -= lh; }
+      y -= 0.8*u;
+    }
+    // time block
+    const fTime = 15*u;
+    ctx.font = `500 ${fTime}px Oswald, "Roboto Condensed", "Arial Narrow", ${KFONT}`;
+    const tw = ctx.measureText(time).width;
+    const timeBase = y;
+    ctx.fillText(time, m, timeBase);
+    // accent bar
+    const barX = m + tw + 2.6*u, barW = 0.9*u, barTop = timeBase - fTime*0.74, barH = fTime*0.74;
+    ctx.save(); ctx.shadowBlur = 0; ctx.fillStyle = '#f5b301';
+    ctx.fillRect(barX, barTop, barW, barH); ctx.restore();
+    ctx.font = `400 ${fSmall*1.05}px ${KFONT}`;
+    const tx = barX + barW + 2.6*u;
+    ctx.fillText(date, tx, barTop + fSmall*1.05);
+    ctx.fillText(week, tx, timeBase - 0.2*u);
+
+    ctx.font = `400 ${fSmall}px ${KFONT}`;
+    for (const b of blocks){
+      if (b.t==='addr') ctx.fillText(b.text, m, b.y);
+      if (b.t==='memo') ctx.fillText(memo, m, b.y);
+      if (b.t==='name'){
+        const nw = ctx.measureText(S.name.trim()).width + fSmall*1.4;
+        ctx.save(); ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+        ctx.fillStyle = 'rgba(255,255,255,.28)';
+        roundRect(ctx, m, b.y, nw, tagH, 0.8*u); ctx.fill(); ctx.restore();
+        ctx.fillText(S.name.trim(), m + fSmall*0.7, b.y + tagH/2 + fSmall*0.36);
+      }
+    }
+    ctx.restore();
+  }
+  function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  // live overlay
+  function renderOverlay(){
+    const r = stage.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio||1, 3);
+    const w = Math.round(r.width*dpr), h = Math.round(r.height*dpr);
+    if (overlay.width!==w || overlay.height!==h){ overlay.width=w; overlay.height=h; }
+    const ctx = overlay.getContext('2d'); ctx.clearRect(0,0,w,h);
+    drawStamp(ctx, w, h);
+  }
+  setInterval(renderOverlay, 1000);
+  window.addEventListener('resize', renderOverlay);
+  if (document.fonts) document.fonts.load('500 40px Oswald').then(renderOverlay).catch(()=>{});
+
+  // ---------- camera ----------
+  let stream = null;
+  function showMsg(text, showStart){
+    $('msgText').textContent = text; $('msg').classList.add('show');
+    $('btnStart').classList.toggle('hidden', !showStart);
+  }
+  async function startCamera(){
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      showMsg('이 브라우저에서는 실시간 카메라를 쓸 수 없어요. https 주소로 열었는지 확인하거나, 기본 카메라로 찍어주세요.', false);
+      return;
+    }
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    $('shutter').disabled = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{
+        facingMode:{ideal:S.facing}, width:{ideal:4032}, height:{ideal:3024}}});
+      video.srcObject = stream;
+      video.classList.toggle('mirror', S.facing==='user');
+      await video.play().catch(()=>{});
+      $('msg').classList.remove('show');
+      $('shutter').disabled = false;
+    } catch(e){
+      const denied = e && (e.name==='NotAllowedError' || e.name==='SecurityError');
+      showMsg(denied ? '카메라 권한이 거부됐어요. 브라우저 설정에서 카메라를 허용한 뒤 다시 시도하거나, 기본 카메라로 찍어주세요.'
+                     : '카메라를 시작하지 못했어요. 다시 시도하거나 기본 카메라로 찍어주세요.', true);
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState==='visible'){
+      if (stream && !stream.getVideoTracks().some(t=>t.readyState==='live')) startCamera();
+      if (Date.now()-lastGeo > 5*60*1000) refreshLocation(false);
+    }
+  });
+
+  // ---------- capture ----------
+  const shots = []; // {url, blob, name}
+  function fileName(d){ return `timemark_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.jpg`; }
+  function finishCanvas(c, when){
+    drawStamp(c.getContext('2d'), c.width, c.height, when);
+    c.toBlob(blob => {
+      if (!blob){ toast('사진을 만들지 못했어요'); return; }
+      const url = URL.createObjectURL(blob);
+      shots.push({url, blob, name:fileName(when)});
+      $('thumb').innerHTML = `<img src="${url}" alt="">`;
+      toast('촬영했어요');
+    }, 'image/jpeg', 0.92);
+  }
+  function captureLive(){
+    if (!video.videoWidth) return;
+    const when = new Date();
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const r = stage.getBoundingClientRect(), ar = r.width / r.height; // crop to what you see
+    let sw = vw, sh = vh;
+    if (vw/vh > ar) sw = Math.round(vh*ar); else sh = Math.round(vw/ar);
+    const sx = Math.round((vw-sw)/2), sy = Math.round((vh-sh)/2);
+    const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+    const ctx = c.getContext('2d');
+    if (S.facing==='user'){ ctx.translate(sw,0); ctx.scale(-1,1); }
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+    ctx.setTransform(1,0,0,1,0,0);
+    const f = $('flash'); f.classList.add('on'); requestAnimationFrame(()=>requestAnimationFrame(()=>f.classList.remove('on')));
+    if (navigator.vibrate) navigator.vibrate(30);
+    finishCanvas(c, when);
+  }
+  $('shutter').onclick = captureLive;
+
+  // native camera (full-quality)
+  const openNative = () => { $('fileInput').value=''; $('fileInput').click(); };
+  $('btnNative').onclick = openNative; $('btnNative2').onclick = openNative;
+  $('fileInput').onchange = async e => {
+    const file = e.target.files && e.target.files[0]; if (!file) return;
+    const when = new Date();
+    try {
+      let bmp;
+      try { bmp = await createImageBitmap(file, {imageOrientation:'from-image'}); }
+      catch(_) { bmp = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=URL.createObjectURL(file); }); }
+      const w = bmp.width, h = bmp.height;
+      const c = document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(bmp,0,0,w,h);
+      finishCanvas(c, when);
+    } catch(err){ toast('사진을 불러오지 못했어요'); }
+  };
+
+  // ---------- viewer ----------
+  let vi = -1;
+  function openViewer(i){
+    if (!shots.length){ toast('아직 찍은 사진이 없어요'); return; }
+    vi = Math.max(0, Math.min(i, shots.length-1));
+    $('vImg').src = shots[vi].url; $('vCount').textContent = `${vi+1} / ${shots.length}`;
+    $('vPrev').disabled = vi===0; $('vNext').disabled = vi===shots.length-1;
+    $('vPrev').style.opacity = vi===0?.4:1; $('vNext').style.opacity = vi===shots.length-1?.4:1;
+    $('viewer').classList.add('show');
+  }
+  $('thumb').onclick = () => openViewer(shots.length-1);
+  $('vClose').onclick = () => $('viewer').classList.remove('show');
+  $('vPrev').onclick = () => openViewer(vi-1);
+  $('vNext').onclick = () => openViewer(vi+1);
+  $('vDelete').onclick = () => {
+    if (vi<0) return; URL.revokeObjectURL(shots[vi].url); shots.splice(vi,1);
+    if (!shots.length){ $('viewer').classList.remove('show'); $('thumb').innerHTML='<span>사진</span>'; return; }
+    $('thumb').innerHTML = `<img src="${shots[shots.length-1].url}" alt="">`; openViewer(Math.min(vi, shots.length-1));
+  };
+  let dl = null; // claude artifact downloads capability (when hosted on claude.ai)
+  try { if (window.claude && window.claude.use) window.claude.use('downloads').then(x => { dl = x; }).catch(()=>{}); } catch(e){}
+  $('vSave').onclick = async () => {
+    const s = shots[vi]; if (!s) return;
+    const file = new File([s.blob], s.name, {type:'image/jpeg'});
+    if (dl){
+      try { await dl.save({filename:s.name, data:s.blob}); toast('저장했어요'); } catch(e){ if (e && e.code!=='declined') toast('저장하지 못했어요'); }
+      return;
+    }
+    if (navigator.canShare && navigator.canShare({files:[file]})){
+      try { await navigator.share({files:[file]}); return; } catch(e){ if (e && e.name==='AbortError') return; }
+    }
+    const a = document.createElement('a'); a.href = s.url; a.download = s.name; document.body.appendChild(a); a.click(); a.remove();
+    toast('다운로드했어요');
+  };
+
+  // ---------- settings sheet ----------
+  function openSheet(){
+    $('inName').value = S.name; $('swName').checked = S.showName; $('swAddr').checked = S.showAddr;
+    $('inAddr').value = S.manualAddr; $('inMemo').value = S.memo; $('swSec').checked = S.showSec;
+    renderAutoAddr();
+    $('sheetBg').classList.add('show'); $('sheet').classList.add('show');
+  }
+  function closeSheet(){ $('sheetBg').classList.remove('show'); $('sheet').classList.remove('show'); }
+  const bind = (id, key, prop='value') => $(id).addEventListener('input', () => { S[key] = $(id)[prop]; saveS(); renderOverlay(); });
+  bind('inName','name'); bind('inAddr','manualAddr'); bind('inMemo','memo');
+  ['swName:showName','swAddr:showAddr','swSec:showSec'].forEach(p => { const [id,k]=p.split(':');
+    $(id).addEventListener('change', () => { S[k] = $(id).checked; saveS(); renderOverlay(); }); });
+  $('btnSettings').onclick = openSheet; $('btnEdit').onclick = openSheet;
+  $('sheetBg').onclick = closeSheet; $('btnSheetDone').onclick = closeSheet;
+  $('btnLoc').onclick = () => refreshLocation(true);
+  $('btnFlip').onclick = () => { S.facing = S.facing==='user' ? 'environment' : 'user'; saveS(); startCamera(); };
+  $('btnStart').onclick = startCamera;
+
+  let tt; function toast(t){ const el=$('toast'); el.textContent=t; el.classList.add('show'); clearTimeout(tt); tt=setTimeout(()=>el.classList.remove('show'),1600); }
+
+  // ---------- boot ----------
+  renderOverlay();
+  startCamera();
+  refreshLocation(false);
+  setInterval(() => { if (document.visibilityState==='visible') refreshLocation(false); }, 5*60*1000);
+})();
+</script>
+</body>
+</html>
