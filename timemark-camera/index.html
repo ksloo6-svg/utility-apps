@@ -32,9 +32,21 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .stage{position:relative;aspect-ratio:3/4;width:100%;max-height:100%;background:#111;overflow:hidden}
 @supports not (aspect-ratio:3/4){.stage{height:133.33vw}}
 .stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.stage video.mirror{transform:scaleX(-1)}
 .stage canvas.overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-.side{position:absolute;right:10px;bottom:14px;display:flex;flex-direction:column;gap:14px;z-index:2}
+.side{position:absolute;right:10px;bottom:14px;display:flex;flex-direction:column;align-items:center;gap:14px;z-index:2}
+.zoom-knob{position:relative;width:56px;height:56px;border-radius:50%;background:rgba(0,0,0,.45);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:grid;place-items:center;touch-action:none;
+  font-size:15px;font-weight:600;transition:transform .12s}
+.zoom-knob.active{transform:scale(1.18);background:rgba(0,0,0,.6)}
+.zoom-knob svg{position:absolute;inset:2px;width:52px;height:52px}
+.zoom-knob .track{fill:none;stroke:rgba(255,255,255,.35);stroke-width:2.5}
+.zoom-knob .ring{fill:none;stroke:#f5b301;stroke-width:3;stroke-linecap:round;transition:stroke-dasharray .08s}
+.zoom-knob span{position:relative}
+.zoom-big{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:rgba(0,0,0,.55);color:#fff;
+  font-size:22px;font-weight:600;padding:6px 16px;border-radius:999px;opacity:0;transition:opacity .15s;z-index:2;pointer-events:none}
+.zoom-big.show{opacity:1}
+.stage video{transform-origin:center center}
+.stage{touch-action:none}
 .side .icon-btn{background:rgba(0,0,0,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .msg{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
   gap:14px;padding:24px;text-align:center;color:var(--muted);font-size:15px;line-height:1.5;z-index:1}
@@ -115,7 +127,12 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
         <button class="pill" id="btnStart">카메라 켜기</button>
         <button class="pill ghost" id="btnNative2">기본 카메라로 찍기</button>
       </div>
+      <div class="zoom-big" id="zoomBig">1x</div>
       <div class="side">
+        <button class="zoom-knob" id="zoomKnob" aria-label="배율 (끌어서 조절, 탭하면 단계 전환)">
+          <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23" class="track"/><circle cx="26" cy="26" r="23" class="ring" id="zoomRing" transform="rotate(-90 26 26)"/></svg>
+          <span id="zoomLabel">1x</span>
+        </button>
         <button class="icon-btn" id="btnEdit" aria-label="이름·주소 편집">
           <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
         </button>
@@ -327,25 +344,58 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   window.addEventListener('resize', renderOverlay);
   if (document.fonts) document.fonts.load('500 40px Oswald').then(renderOverlay).catch(()=>{});
 
-  // ---------- camera ----------
-  let stream = null;
+  // ---------- camera + zoom ----------
+  let stream = null, track = null;
+  const Z = {mode:'digital', min:1, max:5, value:1, lens:'default', ultra:null, wide:null, probed:false, busy:false};
   function showMsg(text, showStart){
     $('msgText').textContent = text; $('msg').classList.add('show');
     $('btnStart').classList.toggle('hidden', !showStart);
+  }
+  async function probeLenses(){
+    // iPhone Safari lists each back lens separately (labels appear after permission)
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+      const ultra = devs.find(d => /ultra ?wide|초광각/i.test(d.label));
+      const wide = devs.find(d => /^(back camera|후면 카메라)$/i.test(d.label.trim()));
+      Z.ultra = ultra ? ultra.deviceId : null;
+      Z.wide = wide ? wide.deviceId : null;
+    } catch(e){}
+    Z.probed = true;
+  }
+  async function openStream(lens){
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    const v = {width:{ideal:4032}, height:{ideal:3024}};
+    const id = S.facing==='environment' ? (lens==='ultra' ? Z.ultra : lens==='wide' ? Z.wide : null) : null;
+    if (id) v.deviceId = {exact:id}; else v.facingMode = {ideal:S.facing};
+    stream = await navigator.mediaDevices.getUserMedia({audio:false, video:v});
+    track = stream.getVideoTracks()[0];
+    Z.lens = id ? lens : 'default';
+    video.srcObject = stream;
+    await video.play().catch(()=>{});
   }
   async function startCamera(){
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
       showMsg('이 브라우저에서는 실시간 카메라를 쓸 수 없어요. https 주소로 열었는지 확인하거나, 기본 카메라로 찍어주세요.', false);
       return;
     }
-    if (stream) stream.getTracks().forEach(t=>t.stop());
     $('shutter').disabled = true;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{
-        facingMode:{ideal:S.facing}, width:{ideal:4032}, height:{ideal:3024}}});
-      video.srcObject = stream;
-      video.classList.toggle('mirror', S.facing==='user');
-      await video.play().catch(()=>{});
+      await openStream(S.facing==='environment' && Z.ultra ? 'ultra' : 'default');
+      if (S.facing==='environment'){
+        if (!Z.probed) await probeLenses();
+      }
+      const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
+      if (caps.zoom && caps.zoom.max > caps.zoom.min){
+        // camera supports real optical/sensor zoom (mostly Android Chrome)
+        Z.mode = 'hw'; Z.min = caps.zoom.min; Z.max = Math.min(caps.zoom.max, 10);
+        Z.value = Z.min; applyZoom(true);
+      } else {
+        Z.mode = 'digital';
+        const hasUltra = S.facing==='environment' && Z.ultra;
+        Z.min = hasUltra ? 0.5 : 1; Z.max = 5; Z.value = Z.min;
+        if (hasUltra && Z.lens!=='ultra') await openStream('ultra');   // start at the widest lens
+        applyZoom(true);
+      }
       $('msg').classList.remove('show');
       $('shutter').disabled = false;
     } catch(e){
@@ -354,6 +404,76 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
                      : '카메라를 시작하지 못했어요. 다시 시도하거나 기본 카메라로 찍어주세요.', true);
     }
   }
+  const lensBase = () => Z.lens==='ultra' ? 0.5 : 1;
+  const digitalScale = () => Z.mode==='hw' ? 1 : Math.max(1, Z.value / lensBase());
+  let hwPending = false;
+  function applyZoom(updateUI){
+    if (Z.mode==='hw' && track && !hwPending){
+      hwPending = true;
+      requestAnimationFrame(() => { hwPending = false;
+        track.applyConstraints({advanced:[{zoom:Z.value}]}).catch(()=>{}); });
+    }
+    const sc = digitalScale(), mx = S.facing==='user' ? -1 : 1;
+    video.style.transform = `scale(${sc*mx}, ${sc})`;
+    if (updateUI !== false) renderKnob();
+  }
+  // switch physical lens after the gesture ends (iPhone digital mode)
+  async function settleLens(){
+    if (Z.mode!=='digital' || S.facing!=='environment' || !Z.ultra || Z.busy) return;
+    const want = Z.value < 1 ? 'ultra' : (Z.wide ? 'wide' : 'default');
+    if (want === Z.lens) return;
+    Z.busy = true;
+    try { await openStream(want); } catch(e){}
+    Z.busy = false; applyZoom();
+  }
+  const fmtZoom = z => (z < 1 || Math.abs(z-Math.round(z)) > 0.05 ? z.toFixed(1) : String(Math.round(z))) + 'x';
+  function renderKnob(){
+    $('zoomLabel').textContent = fmtZoom(Z.value);
+    const t = Math.log(Z.value/Z.min) / Math.log(Z.max/Z.min || 2);
+    const C = 2*Math.PI*23;
+    $('zoomRing').style.strokeDasharray = `${C*Math.max(0,Math.min(1,t))} ${C}`;
+  }
+  function setZoom(z){ Z.value = Math.max(Z.min, Math.min(Z.max, z)); applyZoom(); }
+
+  // knob: drag up/right = zoom in, down/left = zoom out; tap = jump between presets
+  (() => {
+    const knob = $('zoomKnob'); let sx=0, sy=0, start=1, moved=false, id=null;
+    knob.addEventListener('pointerdown', e => {
+      id = e.pointerId; knob.setPointerCapture(id); sx=e.clientX; sy=e.clientY; start=Z.value; moved=false;
+      knob.classList.add('active'); e.preventDefault();
+    });
+    knob.addEventListener('pointermove', e => {
+      if (e.pointerId!==id) return;
+      const d = (e.clientX - sx) - (e.clientY - sy);
+      if (Math.abs(d) > 4) moved = true;
+      if (!moved) return;
+      const range = Math.log(Z.max/Z.min);           // 220px of drag covers the whole range
+      setZoom(start * Math.exp(d/220 * range));
+      $('zoomBig').textContent = fmtZoom(Z.value); $('zoomBig').classList.add('show');
+    });
+    const end = e => {
+      if (e.pointerId!==id) return; id=null; knob.classList.remove('active');
+      $('zoomBig').classList.remove('show');
+      if (!moved){
+        const presets = [Z.min, 1, 2, 5].filter((v,i,a)=>v>=Z.min && v<=Z.max && a.indexOf(v)===i).sort((a,b)=>a-b);
+        const next = presets.find(v => v > Z.value + 0.05);
+        setZoom(next === undefined ? presets[0] : next);
+      }
+      settleLens();
+    };
+    knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
+  })();
+  // pinch on the preview also zooms
+  (() => {
+    let d0=0, z0=1;
+    const dist = t => Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+    stage.addEventListener('touchstart', e => { if (e.touches.length===2){ d0=dist(e.touches); z0=Z.value; } }, {passive:true});
+    stage.addEventListener('touchmove', e => {
+      if (e.touches.length===2 && d0){ e.preventDefault(); setZoom(z0 * dist(e.touches)/d0);
+        $('zoomBig').textContent = fmtZoom(Z.value); $('zoomBig').classList.add('show'); }
+    }, {passive:false});
+    stage.addEventListener('touchend', e => { if (d0 && e.touches.length<2){ d0=0; $('zoomBig').classList.remove('show'); settleLens(); } });
+  })();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState==='visible'){
       if (stream && !stream.getVideoTracks().some(t=>t.readyState==='live')) startCamera();
@@ -381,11 +501,14 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     const r = stage.getBoundingClientRect(), ar = r.width / r.height; // crop to what you see
     let sw = vw, sh = vh;
     if (vw/vh > ar) sw = Math.round(vh*ar); else sh = Math.round(vw/ar);
-    const sx = Math.round((vw-sw)/2), sy = Math.round((vh-sh)/2);
-    const c = document.createElement('canvas'); c.width = sw; c.height = sh;
-    const ctx = c.getContext('2d');
-    if (S.facing==='user'){ ctx.translate(sw,0); ctx.scale(-1,1); }
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+    const dz = digitalScale(); sw = sw/dz; sh = sh/dz;
+    const sx = (vw-sw)/2, sy = (vh-sh)/2;
+    const up = Math.max(1, 1440/Math.min(sw,sh));     // keep stamp crisp on heavy digital zoom
+    const ow = Math.round(sw*up), oh = Math.round(sh*up);
+    const c = document.createElement('canvas'); c.width = ow; c.height = oh;
+    const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+    if (S.facing==='user'){ ctx.translate(ow,0); ctx.scale(-1,1); }
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, ow, oh);
     ctx.setTransform(1,0,0,1,0,0);
     const f = $('flash'); f.classList.add('on'); requestAnimationFrame(()=>requestAnimationFrame(()=>f.classList.remove('on')));
     if (navigator.vibrate) navigator.vibrate(30);
