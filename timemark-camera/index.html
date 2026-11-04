@@ -45,6 +45,10 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .zoom-big{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:rgba(0,0,0,.55);color:#fff;
   font-size:22px;font-weight:600;padding:6px 16px;border-radius:999px;opacity:0;transition:opacity .15s;z-index:2;pointer-events:none}
 .zoom-big.show{opacity:1}
+.focus-box{position:absolute;width:76px;height:76px;margin:-38px 0 0 -38px;border:2px solid #f5b301;border-radius:6px;
+  opacity:0;pointer-events:none;z-index:2;transform:scale(1.4)}
+.focus-box.show{opacity:1;transform:scale(1);transition:transform .2s ease,opacity .1s}
+.focus-box.done{opacity:0;transition:opacity .5s ease .6s}
 .stage video{transform-origin:center center}
 .stage{touch-action:none}
 .side .icon-btn{background:rgba(0,0,0,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
@@ -140,6 +144,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
           <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.6"/></svg>
         </button>
       </div>
+      <div class="focus-box" id="focusBox"></div>
       <div class="flash" id="flash"></div>
     </div>
   </div>
@@ -463,16 +468,53 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     };
     knob.addEventListener('pointerup', end); knob.addEventListener('pointercancel', end);
   })();
+  // tap to focus: focus (and exposure) on the tapped point when the browser allows it
+  let focusTimer=null, focusHintShown=false, pinching=false;
+  async function focusAt(px, py){
+    const r = stage.getBoundingClientRect();
+    const fb = $('focusBox'); fb.style.left = px+'px'; fb.style.top = py+'px';
+    fb.classList.remove('show','done'); void fb.offsetWidth; fb.classList.add('show');
+    clearTimeout(focusTimer); focusTimer = setTimeout(()=>fb.classList.add('done'), 400);
+    if (!track || !video.videoWidth) return;
+    // map screen point -> normalized video point (undo mirror, digital zoom and cover crop)
+    const vw = video.videoWidth, vh = video.videoHeight, ar = r.width/r.height, dz = digitalScale();
+    let sw = vw, sh = vh; if (vw/vh > ar) sw = vh*ar; else sh = vw/ar;
+    let rx = px/r.width, ry = py/r.height; if (S.facing==='user') rx = 1-rx;
+    const x = ((vw-sw)/2 + (0.5 + (rx-0.5)/dz)*sw) / vw;
+    const y = ((vh-sh)/2 + (0.5 + (ry-0.5)/dz)*sh) / vh;
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const adv = {};
+    if ('pointsOfInterest' in caps || (track.getSettings && 'pointsOfInterest' in track.getSettings())) adv.pointsOfInterest = [{x, y}];
+    const fm = caps.focusMode || [];
+    if (fm.includes('single-shot')) adv.focusMode = 'single-shot'; else if (fm.includes('continuous')) adv.focusMode = 'continuous';
+    if ((caps.exposureMode||[]).includes('continuous')) adv.exposureMode = 'continuous';
+    if (!Object.keys(adv).length){
+      if (!focusHintShown){ focusHintShown = true;
+        toast('이 브라우저는 초점 위치 지정을 막아둬서 자동 초점으로 잡혀요'); }
+      return;
+    }
+    try {
+      // re-trigger: briefly switch mode so the camera refocuses even on the same point
+      if (adv.focusMode === 'continuous' && fm.includes('manual')) await track.applyConstraints({advanced:[{focusMode:'manual'}]}).catch(()=>{});
+      await track.applyConstraints({advanced:[adv]});
+      if (adv.focusMode === 'single-shot' && fm.includes('continuous'))
+        setTimeout(()=>track.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{}), 3000);
+    } catch(e){}
+  }
+  stage.addEventListener('click', e => {
+    if (pinching || e.target.closest('.side, .msg')) return;
+    const r = stage.getBoundingClientRect(); focusAt(e.clientX - r.left, e.clientY - r.top);
+  });
   // pinch on the preview also zooms
   (() => {
     let d0=0, z0=1;
     const dist = t => Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
-    stage.addEventListener('touchstart', e => { if (e.touches.length===2){ d0=dist(e.touches); z0=Z.value; } }, {passive:true});
+    stage.addEventListener('touchstart', e => { if (e.touches.length===2){ d0=dist(e.touches); z0=Z.value; pinching=true; } }, {passive:true});
     stage.addEventListener('touchmove', e => {
       if (e.touches.length===2 && d0){ e.preventDefault(); setZoom(z0 * dist(e.touches)/d0);
         $('zoomBig').textContent = fmtZoom(Z.value); $('zoomBig').classList.add('show'); }
     }, {passive:false});
-    stage.addEventListener('touchend', e => { if (d0 && e.touches.length<2){ d0=0; $('zoomBig').classList.remove('show'); settleLens(); } });
+    stage.addEventListener('touchend', e => { if (d0 && e.touches.length<2){ d0=0; setTimeout(()=>pinching=false, 350); $('zoomBig').classList.remove('show'); settleLens(); } });
   })();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState==='visible'){
