@@ -271,8 +271,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   }
   const KFONT = '-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif';
   function drawStamp(ctx, W, H, when){
-    const u = Math.min(W,H)/100;           // 1% of short side
-    const m = 4*u;                          // margin
+    const u = Math.min(W,H)/200;           // 0.5% of short side (stamp at half size)
+    const m = 6*u;                          // margin from bottom-left corner
     const d = when || new Date();
     const time = S.showSec ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     const date = `${d.getFullYear()}년${pad(d.getMonth()+1)}월${pad(d.getDate())}일`;
@@ -286,7 +286,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 
     const fSmall = 4.4*u, lh = fSmall*1.32;
     ctx.font = `400 ${fSmall}px ${KFONT}`;
-    const addrLines = addr ? wrap(ctx, addr, W*0.62).slice(0,3) : [];
+    const addrLines = addr ? wrap(ctx, addr, W*0.5).slice(0,3) : [];
     const showName = S.showName && S.name.trim();
     const memo = S.memo.trim();
     const tagH = fSmall*1.9;
